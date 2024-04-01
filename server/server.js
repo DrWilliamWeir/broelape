@@ -10,7 +10,7 @@ const io = socketio(server);
 
 const PORT = 3000 || process.env.PORT;
 
-server.listen(PORT, "0.0.0.0" => console.log(`Server running on port ${PORT}`));
+server.listen(PORT, "0.0.0.0", () => console.log(`Server running on port ${PORT}`));
 
 // Set static folder
 app.use(express.static(path.join(__dirname, '../public')));
