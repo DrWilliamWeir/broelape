@@ -1,0 +1,19 @@
+{
+  "name": "amerikaner",
+  "version": "1.0.0",
+  "description": "Classic Norwegian card game",
+  "main": "./server/server.js",
+  "scripts": {
+    "start": "node server/server.js",
+    "dev": "nodemon dev"
+  },
+  "author": "Erling Schrøder",
+  "license": "MIT",
+  "dependencies": {
+    "express": "^4.19.1",
+    "socket.io": "^4.7.5"
+  },
+  "devDependencies": {
+    "nodemon": "^3.1.0"
+  }
+}
