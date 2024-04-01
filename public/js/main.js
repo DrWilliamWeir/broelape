@@ -1,4 +1,4 @@
-const socket = io("http://localhost:3000");
+const socket = io();
 
 // Login page
 let loginInfo = document.getElementById("formSubmit");
