@@ -15,100 +15,72 @@ server.listen(port, "0.0.0.0", () => console.log(`Server running on port ${port}
 // Set static folder
 app.use(express.static(path.join(__dirname, '../public')));
 
+// For Rooms
+let users = [];
+let gameRooms = [];
+let players = [];
+let trickCounter = 0;
+let winnerbid = "";
+let contract = 0;
 
 // For amerikaner
-const gameMembers = 2;
-const gameRooms = [];
+const gameMembers = 4;
 const gameState = ["waiting", "bidding", "choose trump", "first round", "play card", "last round"];
+let trump = "";
+let stikk = [];
+let bids = [];
 const numberDeck = [];
 for (let i = 0; i < 52; i++) {
   numberDeck.push(i);
 };
 
 
+
 // When client connects
 io.on("connection", socket => {
 
   socket.on("join server", data => {
-  
-    let user = { 
-      deck : [],
+    const user = {
       name: data.name,
       id: socket.id,
-      isPlayerTurn: false,
-      canBid: false,
-      bid: "",
+      room: data.room,
+      canBid: true,
       roundScore: 0,
       totalScore: 0,
       sharedScore: false,
-      gameState: "waiting",
-      mustplay: false,
-      mustcard: "",
-      trickLeader: false,
-      isTeam: false,
-      contractLeader: false
+      gameState: "waiting"
     };
 
-    // Filter for rooms with similar name
-    let room = gameRooms.filter(room => room.roomID == data.room);
+    
+    let room = users.filter(user => user.room == data.room);
 
-    // Push room if no users in room
-    if (room.length == 0) {
-      let roomObject = {
-        roomID: "",
-        users: [],
-        trump: "",
-        stikk: [],
-        bids: [],
-        trickCounter: 0,
-        contract: 0 
-      };
-      roomObject.roomID = data.room;
-      gameRooms.push(roomObject);
-      user.isPlayerTurn = true;
-      user.canBid = true;
-    }
-
-    let roomIndex = gameRooms.findIndex(roomName => roomName.roomID == data.room);
-
-    // Add user to room
-    if (roomIndex == -1) {
-      console.log("Something went wrong, shouldnt be -1");
-    } else if (gameRooms[roomIndex].users.length >= gameMembers) { 
-        socket.emit("full room"); 
+    if (room.length >= gameMembers) {
+      socket.emit("full room"); 
+    // Disse 2 linjene er for betatesting
+    } else if (data.room !== "1") {
+      socket.emit("full room");
     } else {
-      gameRooms[roomIndex].users.push(user);
-
-    // Joining socket room
+      users.push(user);
       socket.join(data.room);
-
-    // Sending user information
-      socket.emit("join game", { user: user, playerID: gameRooms[roomIndex].users.length -1 });
-
-      let inRoom = gameRooms[roomIndex].users.length;
-
-    // Start first round 
-      if (inRoom == gameMembers) {
-        deckRandomizer(roomIndex);
-        let playerNames = [];
-        for (let i = 0; i < gameMembers; i++) {
-          playerNames[i] = gameRooms[roomIndex].users[i].name;
-        }
-        io.to(data.room).emit("begin game", playerNames);
-      }
-    }
+      socket.emit("join game", {room: data.room, name: data.name });
+      room = users.filter(user => user.room == data.room);
+    };
+    // Start first round    
+    if (room.length == gameMembers) {
+      let decks = deckRandomizer();
+      for (i = 0; i < room.length; i++) {
+        io.to(room[i].id).emit("begin game", ( { deck: decks[i], playerID: i + 1 }));
+        players[i] = users[i].name;
+      };
+      io.to(data.room).emit("player information", players);
+    };
   });
 
   // Incoming bids
   socket.on("made bid", data => {
-    // test returns [x, y] where x is index room and y is index player
-    let test = findIndexes(socket.id);
-    if (test && gameRooms[test[0]].users[test[1]].id == socket.id && gameRooms[test[0]].users[test[1]].isPlayerTurn == true) {
-      gameRooms[test[0]].bids.push(data.bid);
-      gameRooms[test[0]].users[[test[1]]].canBid = false;
-      gameRooms[test[0]].users[test[1]].isPlayerTurn = false;
-      parseBids({ bid: data.bid, room: test[0], user: test[1], socket: socket.id});
-    }
+    console.log("bidding done!");
+    let x = data;
+    parseBids(x);
   });
 
   // Compulsory partner card
@@ -186,81 +158,49 @@ io.on("connection", socket => {
     users[data - 1].sharedScore = true;
   })
 
-  socket.on("disconnect", () => { 
-    // Find user in gameRoom array
-    let roomIndex = findIndexes(socket.id);
-    if (roomIndex) {
-      let r = roomIndex[0];
-      let u = roomIndex[1];
-    // Splice room if room is empty, or user if room is not empty
-      if (gameRooms[r].users.length == 1) {
-        gameRooms.splice(roomIndex[r], 1);
-      } else {
-        gameRooms[roomIndex[r]].users.splice(roomIndex[u], 1);
-        gameRooms[r].users[0].isPlayerTurn = true;
-        for (let i = 0; i < gameRooms[r].users.length; i++) {
-          gameRooms[r].users[i].gameState = "waiting";
-        }
-        io.to(gameRooms[r].roomID).emit("player left", "waiting");
-        io.to(gameRooms[r].users[0].id).emit("true");
-      } 
-    } 
+  socket.on("disconnect", () => {
+    users = users.filter(u => u.id !== socket.id);
+    io.emit("new user", users);
   });
 });
 
-function findIndexes (data) {
-  for (let i = 0; i < gameRooms.length; i++) {
-    for (let x = 0; x < gameMembers; x++) {
-      if (gameRooms[i].users[x].id == data) {
-        return [i, x]; 
-      }
-    } 
-  }
-}
-
 // Crazy.. easier way to evaluate bids?
-function parseBids(x) {
-  // x contains { bid: data.bid, socket: socket.id, room: test[0], user: test[1]});
-  gameRooms[x.room].users[x.user].bid = x.bid;
-  let filterBids = 0;
-  for (let i = 0; i < gameMembers; i++) {
-    if (gameRooms[x.room].users[i].bid === "PASS") {
-      filterBids += 1;
-    }
+function parseBids(data) {
+  bids[data.player - 1] = {bid: data.bid, player: data.player};
+  let filterBids = bids.filter(bid => bid.bid === "PASS");
+  if (data.bid === "PASS") {
+    users[data.player - 1].canBid = false;
   }
- 
-  if (filterBids == gameRooms[x.room].bids.length && filterBids < gameMembers) {
-    let next = x.user + 1;
-    if (next == gameMembers) {
-      next = "0";
+  if (filterBids.length == bids.length && filterBids.length < gameMembers) {
+    let next = data.player + 1;
+    if (next > gameMembers) {
+      next = 1;
     };
-    gameRooms[x.room].users[next].isPlayerTurn = true;
-    gameRooms[x.room].users[next].canBid = true;
-    io.to(gameRooms[x.room].roomID).emit("bid information", { bid: x.bid, nextPlayer: next });
-    console.log("HEuuuuu");
+    io.to(data.room).emit("bid information", { bid: data.bid, madeBid: data.player, nextPlayer: next });
     return
   } 
   
-  // All pass
-  if (filterBids == gameRooms[x.room].bids.length && filterBids == gameMembers) {
-    scoreArray = [];
-    
-    gameRooms[x.room].bids = [];
-   
-    deckRandomizer(x.room);
-    let next = x.user + 1;
-    if (next == gameMembers) {
-      next = 0;
-    };
-    gameRooms[x.room].users[next].isPlayerTurn = true;
-    gameRooms[x.room].users[next].canBid = true;
+  if (filterBids.length == bids.length && filterBids.length == gameMembers) {
+    let scoreArray = [];
+    for (i = 0; i < users.length; i++) {
+      scoreArray[i] = users[i].totalScore;
+      users[i].roundScore = 0;
+    }
+    let decks = deckRandomizer();
+    let room = users.filter(user => user.room == data.room);
 
-    for (let i = 0; i < gameMembers; i++) {
-      io.to(gameRooms[x.room].roomID).emit("next round", { score: scoreArray, startPlayer: next });
+    let next = data.player + 1;
+    if (next > gameMembers) {
+      next = 1;
+    } 
+    bids = [];
+    for (let i = 0; i < room.length; i++) {
+      users[i].canBid = true;
+      io.to(room[i].id).emit("next round", { deck: decks[i], score: scoreArray, startPlayer: next });
     }
     return
   }; 
-  /*
+
   if (data.bid === "PASS" && filterBids.length == gameMembers - 1 && bids.length == gameMembers) {
     let filterWinner = bids.filter(bid => bid.bid !== "PASS");
 
@@ -309,7 +249,7 @@ function parseBids(x) {
     }
     io.to(data.room).emit("bid information", { bid: data.bid, madeBid: data.player, nextPlayer: next });
     return
-  } */
+  }
 }
 
 // Calculating round winner
@@ -347,7 +287,7 @@ function calcRoundWinner(el) {
 };
 
 // Shuffle deck
-function deckRandomizer(data) {
+function deckRandomizer() {
   var shuffled = shuffle(numberDeck);
   var deck1 = [];
   var deck2 = [];
@@ -369,13 +309,8 @@ function deckRandomizer(data) {
   for (i = 39; i < 52; i++) {
     deck4.push(shuffled[i]);
   };
-
-  let allDecks = [deck1, deck2, deck3, deck4];
-
-  for (let i = 0; i < gameMembers; i++) {
-    gameRooms[data].users[i].deck = allDecks[i];
-    io.to(gameRooms[data].users[i].id).emit("deck", allDecks[i]);
-  }
+  var returnDecks = [deck1, deck2, deck3, deck4];
+  return returnDecks;
 };
 
 function shuffle(array) {
@@ -550,5 +485,3 @@ const fullDeck = [{
 {
   color: "spades", value: 14, number: 51
 }];
-
-
