@@ -1,4 +1,8 @@
+// For app testing:
 const socket = io();
+
+// For dev env:
+//const socket = io("http://localhost:3000");
 
 // Login page
 let loginInfo = document.getElementById("formSubmit");
@@ -6,7 +10,7 @@ loginInfo.addEventListener("click", function() { joinRoom() });
 
 // Game variables
 let person = {
-  playerID : "",
+  playerID : [],
   name: "",
   isPlayerTurn: false,
   deck: [],
@@ -16,13 +20,17 @@ let person = {
   mustcard: "",
   trickLeader: false,
   isTeam: false,
-  contractLeader: false,
-  gameState : "joining"
+  contractLeader: false
 };
 let trump = "";
 let players = [];
 let currentBid = 0;
 let leadingColor = "";
+
+let opponentArr = [];
+
+
+
 
 
 // Try room login
@@ -36,24 +44,14 @@ function joinRoom() {
   }
 };
 
-socket.on("player left", (data) => {
-  person.isPlayerTurn = false;
-  person.gameState = data;
-  renderStartBoard();
-});
-
-socket.on("true", () => {
-  person.isPlayerTurn = true;
-});
 
 // Full room response from server
 socket.on("full room", () => {
   alert("Full room, I'm terribly sorry.");
 });
 
-function playerInformation(data) {
+socket.on("player information", (data) => {
   players = data;
-  console.log(data);
   let headerText = document.getElementById("roomName");
   headerText.innerHTML = "Room: " + person.room;
   for (let i = 1; i < (data.length + 1); i++) {
@@ -65,10 +63,11 @@ function playerInformation(data) {
     b.innerHTML = "Score: 0";
   } 
   initiateBidding();
-};
+});
 
-function renderStartBoard() {
-  document.body.innerHTML =
+// Join room response from server. New HTML this way to preserve socket connection
+socket.on("join game", (data) => {
+  document.body.innerHTML = 
   '<section id="gameContainer">' +
     '<div id="information">' +
       '<div class="jadda" id="roomName"> </div>' +
@@ -111,19 +110,14 @@ function renderStartBoard() {
   '</section>' ; 
   '<script src="../socket.io/socket.io.js"></script>' +
   '<script src="./js/main.js"></script>';
+  person.room = data.room;
+  person.name = data.name;
+});
+
+function boardManagement() {
+
 }
 
-// Join room response from server. New HTML this way to preserve socket connection
-socket.on("join game", (ele)  => {
-  let data = ele.user;
-  renderStartBoard();
-
-  person.name = data.name;  
-  person.canBid = data.canBid;
-  person.gameState = data.gameState;
-  person.isPlayerTurn = data.isPlayerTurn; 
-  person.playerID = ele.playerID; 
-});
 
 
 function changeToGreen(data) {
@@ -134,19 +128,17 @@ function changeToGreen(data) {
   }
 } 
 
-socket.on("deck", data => {
-  person.deck = data;
+// Room is full. Game begins
+socket.on("begin game",  data => {
+  person.deck = data.deck;
   person.deck.sort(compareNumbers);
   makeLargeDeck(person.deck);
-});
-
-// Room is full. Game begins
-socket.on("begin game",  (data) => {
-  startRound(person.deck);
-  playerInformation(data);
-  if (person.isPlayerTurn == true) {
+  person.playerID = data.playerID;
+  if (data.playerID == 1) {
+    person.isPlayerTurn = true;
     changeToGreen(true); 
   };
+  startRound(person.deck);
 });
 
 function makeLargeDeck(data) {
@@ -159,12 +151,13 @@ socket.on("next round", data => {
   cleanPlayerColors();
   if (data.startPlayer == person.playerID) {
     person.isPlayerTurn = true;
-    person.canBid = true;
     changeToGreen(true);
   }
   let ele = document.getElementById("fyll2");
   ele.innerText = "";
   currentBid = "";
+  person.deck = data.deck;
+  person.deck.sort(compareNumbers);
   let newScores = data.score;
   updateScore(newScores);
   renskHand();
@@ -254,11 +247,6 @@ function makeBid(data) {
       if (Number(bidSize) > Number(currentBid)) {
         person.isPlayerTurn = false;
         changeToGreen(false);
-        for (let i = 7; i <= Number(bidSize); i++) {
-          let elements = document.getElementById(i);
-          elements.classList.remove("possibleBids");
-          elements.classList.add("impossibleBids");
-        }
         socket.emit("made bid", { bid: bidSize, player: person.playerID, room: person.room });
         console.log("bidding done");
       }
@@ -354,6 +342,7 @@ socket.on("Who wants to join the party?", (data) => {
 });
 
 socket.on("bid information", (data) => {
+  
   if (person.playerID == data.nextPlayer) {
     person.isPlayerTurn = true;
     changeToGreen(true);
